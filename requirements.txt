@@ -1,0 +1,6 @@
+SQLAlchemy>=2.0.36,<2.1
+PyMySQL>=1.1.1
+cryptography>=43
+python-dotenv>=1.0.1
+streamlit~=1.66.1  # pinned: app.py's header strip relies on Streamlit's internal layout
+pytest>=8.3

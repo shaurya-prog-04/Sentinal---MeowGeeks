@@ -218,3 +218,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# macOS and local tool files
+.DS_Store
+.claude/

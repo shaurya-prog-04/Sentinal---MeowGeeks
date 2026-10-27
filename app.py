@@ -4,9 +4,14 @@ Rules followed here:
 - The database is the source of truth; session_state only holds UI state.
 - Untrusted fixture/document text is shown with st.text / st.code, never st.markdown.
 - Every result is labelled SIMULATED.
+- Demo mode (SENTINEL_DEMO_MODE=1, for the hosted link) swaps MySQL for a temporary in-memory
+  SQLite database and says so on every page. It is opt-in, so a missing .env still fails loudly.
 """
 import json
+import os
+import threading
 import uuid
+from contextlib import nullcontext
 
 import pandas as pd
 import streamlit as st
@@ -16,9 +21,35 @@ import sentinel as s
 st.set_page_config(page_title="Sentinel", layout="wide")
 
 
+def demo_mode_requested():
+    flag = os.getenv("SENTINEL_DEMO_MODE", "")
+    if not flag:
+        try:
+            flag = str(st.secrets.get("SENTINEL_DEMO_MODE", ""))
+        except Exception:  # no secrets file at all
+            flag = ""
+    return flag.strip() == "1"
+
+
+DEMO = demo_mode_requested()
+
+
 @st.cache_resource
 def engine():
-    return s.get_engine()
+    if not DEMO:
+        return s.get_engine()
+    eng = s.make_engine("sqlite://")
+    s.init_db(eng)
+    s.sync_scenarios(eng)
+    for key in s.SCENARIOS:  # one finished run per scenario, so Results is not empty on first visit
+        s.start_comparison_run(eng, key)
+    return eng
+
+
+@st.cache_resource
+def demo_lock():
+    # the in-memory SQLite engine shares one connection between all viewers: one page run at a time
+    return threading.Lock()
 
 
 def content_of(rep):
@@ -57,7 +88,11 @@ def summary_line(c):
 # ── pages ────────────────────────────────────────────────────────────────────
 def page_health():
     st.header("System health")
-    st.success(f"MySQL {info['version']} connected (database: {info['database']})")
+    if DEMO:
+        st.warning("Demo mode: temporary in-memory SQLite database. It resets when the app restarts. "
+                   "The full version stores runs in MySQL 8.4+.")
+    else:
+        st.success(f"MySQL {info['version']} connected (database: {info['database']})")
     st.write(f"App version {s.APP_VERSION}, evaluator v{s.EVALUATOR_VERSION}")
     st.write("real_timeout: **not implemented** (simulated deadline only)")
 
@@ -243,20 +278,27 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 st.caption(s.SIMULATED_LABEL)
+if DEMO:
+    st.info("**Demo mode:** runs are kept in a temporary database that resets when the app restarts. "
+            "The full version stores every run in MySQL; see the README to run it locally.")
 
-# health check up front: a clear message beats a stack trace
-try:
-    eng = engine()
-    info = s.check_connection(eng)
-    if info["missing_tables"]:
-        st.warning("Tables missing. Run `python sentinel.py init-db` in the terminal, then reload.")
+with demo_lock() if DEMO else nullcontext():
+    # health check up front: a clear message beats a stack trace
+    try:
+        eng = engine()
+        if DEMO:  # check_connection is MySQL-specific
+            info = {"version": "SQLite (demo)", "database": "in-memory", "missing_tables": []}
+        else:
+            info = s.check_connection(eng)
+        if info["missing_tables"]:
+            st.warning("Tables missing. Run `python sentinel.py init-db` in the terminal, then reload.")
+            st.stop()
+        s.cleanup_stale_runs(eng)
+    except s.ConfigError as exc:
+        st.error(f"Configuration problem: {exc}")
         st.stop()
-    s.cleanup_stale_runs(eng)
-except s.ConfigError as exc:
-    st.error(f"Configuration problem: {exc}")
-    st.stop()
-except Exception as exc:
-    st.error(f"Database problem: {type(exc).__name__}: {exc}")
-    st.stop()
+    except Exception as exc:
+        st.error(f"Database problem: {type(exc).__name__}: {exc}")
+        st.stop()
 
-nav.run()
+    nav.run()

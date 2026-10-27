@@ -7,6 +7,15 @@ the security layer actually prevented — including what it **failed** to preven
 > **Simulated.** The agent is a deterministic mock model, not a real AI. Results show whether the
 > enforcement code works; they are not evidence about how any real LLM behaves.
 
+## Live demo
+
+**Link:** _add the Streamlit Cloud URL here_
+
+The hosted link runs in **demo mode**: the same code, but runs are kept in a temporary in-memory
+SQLite database instead of MySQL, so they reset whenever the app restarts. One run per scenario
+is pre-loaded so the Results page has data straight away. The full version (below) stores every
+run and event in MySQL 8.4+.
+
 Core idea: the model can only **propose** actions. Only the gateway + policy engine can **permit**
 them. Outer containment (sandbox jail + operation ceiling) is always on, in both modes.
 
@@ -79,6 +88,15 @@ same data in full.
 
 Reproducible: regenerating a report from the events stored in MySQL gives the same hash
 (checked for B: `ff211e3b…` → `ff211e3b…`, identical).
+
+## Deploying the demo (Streamlit Community Cloud)
+
+1. New app → this repository, branch `main`, main file `app.py`.
+2. Advanced settings → Python 3.12 or 3.13.
+3. Secrets → add `SENTINEL_DEMO_MODE = "1"` and deploy.
+
+Without that secret the app expects MySQL and shows "SENTINEL_DB_URL is not set" — on purpose,
+so a missing `.env` is never silently replaced by temporary storage.
 
 ## How results are judged
 
